@@ -21,15 +21,11 @@ ULTRA_INSTANCE_ID = os.getenv("ULTRA_INSTANCE_ID")
 ULTRA_TOKEN = os.getenv("ULTRA_TOKEN")
 RENDER_URL = os.getenv("RENDER_URL")
 VERITAS_LINK = os.getenv("VERITAS_LINK")
-ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID"))  # Telegram user ID allowed to use bot
+ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID"))
 
-# 📁 Save Excel File
 SAVE_PATH = "loan_data.xlsx"
-
-# 🔗 UltraMsg API Endpoint
 ULTRA_API_URL = f"https://api.ultramsg.com/{ULTRA_INSTANCE_ID}/messages/chat"
 
-# 🚦 Flag to control message sending
 stop_sending = False
 
 # ✅ WhatsApp Sender
@@ -41,26 +37,26 @@ def send_whatsapp_message(phone, message):
     }
     try:
         response = requests.post(ULTRA_API_URL, data=payload)
-        print(f"Sent to {phone}: {response.status_code}")
+        print(f"✅ Sent to {phone}: {response.status_code}")
     except Exception as e:
         print(f"❌ Failed to send to {phone}: {e}")
 
 # 📊 Process Excel
-def process_excel(file_path):
+def process_excel(file_path, context, chat_id):
     global stop_sending
-    stop_sending = False  # Reset at start
+    stop_sending = False
+    sent_count = 0
 
     df = pd.read_excel(file_path)
-    df.columns = df.columns.str.replace('\xa0', ' ').str.strip()  # Clean column headers
+    df.columns = df.columns.str.replace('\xa0', ' ').str.strip()
 
-    # ✅ Filter only for COLLECTION USER = "KONA GOPALA KRISHNA"
+    # 🔍 Filter by COLLECTION USER
     df = df[df['COLLECTION USER'].astype(str).str.strip().str.upper() == "KONA GOPALA KRISHNA"]
 
     for index, row in df.iterrows():
         if stop_sending:
             print("🛑 Sending stopped by user.")
             break
-
         try:
             loan_no = row['LOAN A/C NO']
             name = row['CUSTOMER NAME']
@@ -70,7 +66,6 @@ def process_excel(file_path):
             advance = row['ADVANCE']
 
             payable = edi + overdue - advance
-
             if payable <= 0:
                 continue
 
@@ -86,14 +81,18 @@ def process_excel(file_path):
             )
 
             send_whatsapp_message(phone, msg)
+            sent_count += 1
             time.sleep(2)
+
         except Exception as e:
             print(f"❌ Error processing row {index}: {e}")
 
-# 📩 Handle Telegram Files
+    context.bot.send_message(chat_id=chat_id, text=f"✅ Total WhatsApp messages sent: {sent_count}")
+
+# 📩 Handle Excel Upload
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ALLOWED_USER_ID:
-        await update.message.reply_text("🚫 Access Denied. This bot is restricted.")
+        await update.message.reply_text("🚫 Access Denied.")
         return
 
     document = update.message.document
@@ -102,15 +101,15 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await file.download_to_drive(SAVE_PATH)
         await update.message.reply_text("📁 File received. Sending WhatsApp messages...")
 
-        process_excel(SAVE_PATH)
-        await update.message.reply_text("✅ All WhatsApp messages have been sent.")
+        process_excel(SAVE_PATH, context, update.effective_chat.id)
+        await update.message.reply_text("🎉 Process completed.")
     else:
-        await update.message.reply_text("⚠️ Please send an Excel file (.xlsx or .xls).")
+        await update.message.reply_text("⚠️ Please send a valid Excel file (.xlsx or .xls).")
 
-# 🎛 Start Command with Buttons
+# ▶️ Start Command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ALLOWED_USER_ID:
-        await update.message.reply_text("🚫 Access Denied. This bot is restricted.")
+        await update.message.reply_text("🚫 Access Denied.")
         return
 
     keyboard = [[
@@ -118,39 +117,33 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         InlineKeyboardButton("🤖 About the Bot", callback_data="about")
     ]]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(
-        "I am your WhatsApp Reminder Bot. Please choose an option below:",
-        reply_markup=reply_markup
-    )
+    await update.message.reply_text("🤖 Welcome! Choose an option:", reply_markup=reply_markup)
 
-# 🔘 Handle Button Presses
+# 🔘 Handle Buttons
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query.from_user.id != ALLOWED_USER_ID:
         await query.answer()
-        await query.edit_message_text("🚫 Access Denied. This bot is restricted.")
+        await query.edit_message_text("🚫 Access Denied.")
         return
 
     await query.answer()
-
     if query.data == "upload":
-        await query.edit_message_text("📁 Please upload your Excel (.xlsx) file.")
+        await query.edit_message_text("📁 Please send the Excel (.xlsx) file now.")
     elif query.data == "about":
-        await query.edit_message_text(
-            "🤖 This bot was developed By @ItsKing000. It sends WhatsApp reminder messages to customers based on data from an Excel file."
-        )
+        await query.edit_message_text("🤖 Developed by @ItsKing000 to send WhatsApp reminders from Excel data.")
 
 # 🛑 Stop Command
 async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global stop_sending
     if update.effective_user.id != ALLOWED_USER_ID:
-        await update.message.reply_text("🚫 Access Denied. This bot is restricted.")
+        await update.message.reply_text("🚫 Access Denied.")
         return
 
     stop_sending = True
-    await update.message.reply_text("🛑 Sending has been stopped.")
+    await update.message.reply_text("🛑 Sending stopped.")
 
-# 🌐 Flask Web Server to Keep Render Alive
+# 🌐 Flask Keep-Alive Server
 web_app = Flask('')
 
 @web_app.route('/')
@@ -164,12 +157,12 @@ def keep_alive():
     while True:
         try:
             response = requests.get(RENDER_URL)
-            print(f"Keep-alive ping sent! Status: {response.status_code}")
+            print(f"💓 Keep-alive ping sent: {response.status_code}")
         except Exception as e:
-            print(f"Keep-alive request failed: {e}")
+            print(f"Keep-alive failed: {e}")
         time.sleep(49)
 
-# ▶️ Run Bot
+# 🚀 Run Telegram Bot
 if __name__ == '__main__':
     threading.Thread(target=run_flask).start()
     threading.Thread(target=keep_alive).start()
@@ -180,5 +173,5 @@ if __name__ == '__main__':
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
 
-    print("🚀 Telegram WhatsApp Bot Running...")
+    print("🤖 Bot is running...")
     app.run_polling()
