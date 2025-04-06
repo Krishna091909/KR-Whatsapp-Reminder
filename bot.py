@@ -53,6 +53,9 @@ def process_excel(file_path):
     df = pd.read_excel(file_path)
     df.columns = df.columns.str.replace('\xa0', ' ').str.strip()  # Clean column headers
 
+    # ✅ Filter only for COLLECTION USER = "KONA GOPALA KRISHNA"
+    df = df[df['COLLECTION USER'].astype(str).str.strip().str.upper() == "KONA GOPALA KRISHNA"]
+
     for index, row in df.iterrows():
         if stop_sending:
             print("🛑 Sending stopped by user.")
