@@ -21,15 +21,16 @@ ULTRA_INSTANCE_ID = os.getenv("ULTRA_INSTANCE_ID")
 ULTRA_TOKEN = os.getenv("ULTRA_TOKEN")
 RENDER_URL = os.getenv("RENDER_URL")
 VERITAS_LINK = os.getenv("VERITAS_LINK")
-
-# 🔐 Only allow access to this Telegram user ID
-ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID"))  # Replace with your user ID or load from env
+ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID"))  # Telegram user ID allowed to use bot
 
 # 📁 Save Excel File
 SAVE_PATH = "loan_data.xlsx"
 
 # 🔗 UltraMsg API Endpoint
 ULTRA_API_URL = f"https://api.ultramsg.com/{ULTRA_INSTANCE_ID}/messages/chat"
+
+# 🚦 Flag to control message sending
+stop_sending = False
 
 # ✅ WhatsApp Sender
 def send_whatsapp_message(phone, message):
@@ -46,34 +47,45 @@ def send_whatsapp_message(phone, message):
 
 # 📊 Process Excel
 def process_excel(file_path):
+    global stop_sending
+    stop_sending = False  # Reset at start
+
     df = pd.read_excel(file_path)
+    df.columns = df.columns.str.replace('\xa0', ' ').str.strip()  # Clean column headers
+
     for index, row in df.iterrows():
-        loan_no = row['LOAN A/C NO']
-        name = row['CUSTOMER NAME']
-        phone = row['MOBILE NO']
-        edi = row['EDI AMOUNT']
-        overdue = row['OVER DUE']
-        advance = row['ADVANCE']
+        if stop_sending:
+            print("🛑 Sending stopped by user.")
+            break
 
-        payable = edi + overdue - advance
+        try:
+            loan_no = row['LOAN A/C NO']
+            name = row['CUSTOMER NAME']
+            phone = row['MOBILE NO']
+            edi = row['EDI AMOUNT']
+            overdue = row['OVER DUE']
+            advance = row['ADVANCE']
 
-        if payable <= 0:
-            continue
+            payable = edi + overdue - advance
 
-        # 📢 Custom Message Format in Telugu with Loan Number and Amount
-        msg = (
-            f"👋 ప్రియమైన {name} గారు,\n\n"
-            f"మీ Veritas Finance లో ఉన్న {loan_no} లోన్ నంబరుకు పెండింగ్ అమౌంట్ వివరాలు:\n\n"
-            f"💸 అడ్వాన్స్ మొత్తం: ₹{advance}\n"
-            f"📌 ఈడీ మొత్తం: ₹{edi}\n"
-            f"🔴 ఓవర్‌డ్యూ మొత్తం: ₹{overdue}\n"
-            f"✅ చెల్లించవలసిన మొత్తం: ₹{payable}\n\n"
-            f"⚠️ దయచేసి వెంటనే చెల్లించండి, లేకపోతే పెనాల్టీలు మరియు CIBIL స్కోర్‌పై ప్రభావం పడుతుంది.\n"
-            f"🔗 చెల్లించడానికి లింక్: {VERITAS_LINK}"
-        )
+            if payable <= 0:
+                continue
 
-        send_whatsapp_message(phone, msg)
-        time.sleep(2)  # Add delay between messages
+            msg = (
+                f"👋 ప్రియమైన {name} గారు,\n\n"
+                f"మీ Veritas Finance లో ఉన్న {loan_no} లోన్ నంబరుకు పెండింగ్ అమౌంట్ వివరాలు:\n\n"
+                f"💸 అడ్వాన్స్ మొత్తం: ₹{advance}\n"
+                f"📌 ఈడీ మొత్తం: ₹{edi}\n"
+                f"🔴 ఓవర్‌డ్యూ మొత్తం: ₹{overdue}\n"
+                f"✅ చెల్లించవలసిన మొత్తం: ₹{payable}\n\n"
+                f"⚠️ దయచేసి వెంటనే చెల్లించండి, లేకపోతే పెనాల్టీలు మరియు CIBIL స్కోర్‌పై ప్రభావం పడుతుంది.\n"
+                f"🔗 చెల్లించడానికి లింక్: {VERITAS_LINK}"
+            )
+
+            send_whatsapp_message(phone, msg)
+            time.sleep(2)
+        except Exception as e:
+            print(f"❌ Error processing row {index}: {e}")
 
 # 📩 Handle Telegram Files
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -125,6 +137,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🤖 This bot was developed By @ItsKing000. It sends WhatsApp reminder messages to customers based on data from an Excel file."
         )
 
+# 🛑 Stop Command
+async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global stop_sending
+    if update.effective_user.id != ALLOWED_USER_ID:
+        await update.message.reply_text("🚫 Access Denied. This bot is restricted.")
+        return
+
+    stop_sending = True
+    await update.message.reply_text("🛑 Sending has been stopped.")
+
 # 🌐 Flask Web Server to Keep Render Alive
 web_app = Flask('')
 
@@ -142,7 +164,7 @@ def keep_alive():
             print(f"Keep-alive ping sent! Status: {response.status_code}")
         except Exception as e:
             print(f"Keep-alive request failed: {e}")
-        time.sleep(49)  # Ping every 49 seconds
+        time.sleep(49)
 
 # ▶️ Run Bot
 if __name__ == '__main__':
@@ -151,6 +173,7 @@ if __name__ == '__main__':
 
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("stop", stop))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
 
