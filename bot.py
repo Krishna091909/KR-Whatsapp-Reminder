@@ -23,7 +23,7 @@ RENDER_URL = os.getenv("RENDER_URL")
 VERITAS_LINK = os.getenv("VERITAS_LINK")
 
 # 🔐 Only allow access to this Telegram user ID
-ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID", "123456789"))  # Replace with your user ID or load from env
+ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID"))  # Replace with your user ID or load from env
 
 # 📁 Save Excel File
 SAVE_PATH = "loan_data.xlsx"
@@ -63,7 +63,7 @@ def process_excel(file_path):
         # 📢 Custom Message Format in Telugu with Loan Number and Amount
         msg = (
             f"👋 ప్రియమైన {name} గారు,\n\n"
-            f"మీ Veritas Finance లో ఉన్న {loan_no} లోన్ నంబరుకు బాకీ అమౌంట్ ఉంది:\n"
+            f"మీ Veritas Finance లో ఉన్న {loan_no} లోన్ నంబరుకు పెండింగ్ అమౌంట్ వివరాలు:\n\n"
             f"💸 అడ్వాన్స్ మొత్తం: ₹{advance}\n"
             f"📌 ఈడీ మొత్తం: ₹{edi}\n"
             f"🔴 ఓవర్‌డ్యూ మొత్తం: ₹{overdue}\n"
@@ -122,7 +122,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("📁 Please upload your Excel (.xlsx) file.")
     elif query.data == "about":
         await query.edit_message_text(
-            "🤖 This bot was developed for Veritas Finance. It sends WhatsApp reminder messages to customers based on data from an Excel file."
+            "🤖 This bot was developed By @ItsKing000. It sends WhatsApp reminder messages to customers based on data from an Excel file."
         )
 
 # 🌐 Flask Web Server to Keep Render Alive
