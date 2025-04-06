@@ -22,6 +22,9 @@ ULTRA_TOKEN = os.getenv("ULTRA_TOKEN")
 RENDER_URL = os.getenv("RENDER_URL")
 VERITAS_LINK = os.getenv("VERITAS_LINK")
 
+# 🔐 Only allow access to this Telegram user ID
+ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID", "123456789"))  # Replace with your user ID or load from env
+
 # 📁 Save Excel File
 SAVE_PATH = "loan_data.xlsx"
 
@@ -60,7 +63,7 @@ def process_excel(file_path):
         # 📢 Custom Message Format in Telugu with Loan Number and Amount
         msg = (
             f"👋 ప్రియమైన {name} గారు,\n\n"
-            f"మీ Veritas Finance లో ఉన్న {loan_no} లోన్ నంబరుకు పెండింగ్ అమౌంట్ వివరాలు:\n\n"
+            f"మీ Veritas Finance లో ఉన్న {loan_no} లోన్ నంబరుకు బాకీ అమౌంట్ ఉంది:\n"
             f"💸 అడ్వాన్స్ మొత్తం: ₹{advance}\n"
             f"📌 ఈడీ మొత్తం: ₹{edi}\n"
             f"🔴 ఓవర్‌డ్యూ మొత్తం: ₹{overdue}\n"
@@ -74,6 +77,10 @@ def process_excel(file_path):
 
 # 📩 Handle Telegram Files
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ALLOWED_USER_ID:
+        await update.message.reply_text("🚫 Access Denied. This bot is restricted.")
+        return
+
     document = update.message.document
     if document and document.file_name.endswith(('.xlsx', '.xls')):
         file = await context.bot.get_file(document.file_id)
@@ -87,6 +94,10 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # 🎛 Start Command with Buttons
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ALLOWED_USER_ID:
+        await update.message.reply_text("🚫 Access Denied. This bot is restricted.")
+        return
+
     keyboard = [[
         InlineKeyboardButton("📄 WhatsApp Reminder", callback_data="upload"),
         InlineKeyboardButton("🤖 About the Bot", callback_data="about")
@@ -100,13 +111,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # 🔘 Handle Button Presses
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    if query.from_user.id != ALLOWED_USER_ID:
+        await query.answer()
+        await query.edit_message_text("🚫 Access Denied. This bot is restricted.")
+        return
+
     await query.answer()
 
     if query.data == "upload":
         await query.edit_message_text("📁 Please upload your Excel (.xlsx) file.")
     elif query.data == "about":
         await query.edit_message_text(
-            "🤖 This bot was developed By @ItsKing000. It sends WhatsApp reminder messages to customers based on data from an Excel file."
+            "🤖 This bot was developed for Veritas Finance. It sends WhatsApp reminder messages to customers based on data from an Excel file."
         )
 
 # 🌐 Flask Web Server to Keep Render Alive
