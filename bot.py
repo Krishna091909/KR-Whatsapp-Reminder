@@ -48,7 +48,7 @@ def send_whatsapp_message(phone, message):
 def process_excel(file_path):
     df = pd.read_excel(file_path)
     for index, row in df.iterrows():
-        loan_no = row['LOAN NUMBER']
+        loan_no = row['LOAN A/C NO']
         name = row['CUSTOMER NAME']
         phone = row['MOBILE NO']
         edi = row['EDI AMOUNT']
