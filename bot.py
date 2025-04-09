@@ -1,112 +1,132 @@
 import os
+import asyncio
 import pandas as pd
 import requests
-import threading
-from telegram import Update, InputFile
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+from dotenv import load_dotenv
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram.ext import (
+    ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes,
+    filters, CallbackQueryHandler
+)
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
-FAST2SMS_API_KEY = "YOUR_FAST2SMS_API_KEY"
-ADMIN_CHAT_ID = YOUR_ADMIN_CHAT_ID  # Replace with your Telegram user ID
-LOG_CHANNEL_ID = YOUR_LOG_CHANNEL_ID  # Optional: to send summary logs
+load_dotenv()
 
-# --- SMS Sender Function ---
-def send_sms(number, message):
-    url = "https://www.fast2sms.com/dev/bulkV2"
-    headers = {
-        "authorization": FAST2SMS_API_KEY
-    }
-    data = {
-        "route": "q",
-        "message": message,
-        "language": "english",
-        "flash": 0,
-        "numbers": number
-    }
-    response = requests.post(url, headers=headers, data=data)
-    return response.json()
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID"))
+FAST2SMS_API_KEY = os.getenv("FAST2SMS_API_KEY")
+LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID"))
+VERITAS_LINK = os.getenv("VERITAS_LINK")
 
-# --- Process Excel File ---
-def process_excel(file_path, bot):
-    try:
-        df = pd.read_excel(file_path, header=2)
-    except Exception as e:
-        bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"❌ Failed to read Excel: {e}")
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ALLOWED_USER_ID:
+        await update.message.reply_text("⛔ Unauthorized user.")
         return
 
-    sent, skipped = [], []
+    keyboard = [
+        [InlineKeyboardButton("📤 Upload File", callback_data='upload')],
+        [InlineKeyboardButton("ℹ️ About Bot", callback_data='about')],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
 
-    for _, row in df.iterrows():
-        name = str(row.get("CUSTOMER NAME", "")).strip()
-        mobile = str(row.get("MOBILE NO", "")).strip()
-        edi = str(row.get("EDI AMOUNT", "")).strip()
-        overdue = str(row.get("OVER DUE", "")).strip()
-        advance = str(row.get("ADVANCE", "")).strip()
-        # collection_user = str(row.get("COLLECTION USER", "")).strip()
+    name = update.effective_user.first_name
+    await update.message.reply_text(
+        f"👋 Hey {name},\n\n"
+        "This bot is developed by @ItsKing000. It will send bulk payment reminder SMS to customers using Excel data.",
+        reply_markup=reply_markup
+    )
 
-        # Optional: Filter by collection user
-        # if collection_user != "KONA GOPALA KRISHNA":
-        #     skipped.append(name)
-        #     continue
 
-        if not mobile or len(mobile) != 10 or not mobile.isdigit():
-            skipped.append(name)
-            continue
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
 
-        message = (
-            f"📢 మేము మీ రుణ గడువు గురించి తెలియజేస్తున్నాం.\n\n"
-            f"👤 పేరు: {name}\n"
-            f"📱 మొబైల్: {mobile}\n"
-            f"💰 ఇ.డి.ఐ. మొత్తం: ₹{edi}\n"
-            f"📅 ఓవర్‌డ్యూ: ₹{overdue}\n"
-            f"💵 అడ్వాన్స్: ₹{advance}\n\n"
-            f"దయచేసి గడువు లోపు చెల్లించండి.\nధన్యవాదాలు!"
+    if query.data == 'upload':
+        await query.edit_message_text("📤 Please upload the Excel file now.")
+    elif query.data == 'about':
+        await query.edit_message_text(
+            "ℹ️ This bot reads Excel files with customer loan details and sends SMS reminders using Fast2SMS API."
         )
 
-        try:
-            res = send_sms(mobile, message)
-            if res.get("return") == True:
-                sent.append(name)
-            else:
-                skipped.append(name)
-        except Exception:
-            skipped.append(name)
 
-    # Report
-    report = f"📤 *SMS Report*\n\n✅ Sent: {len(sent)}\n⛔ Skipped: {len(skipped)}\n\n"
-    report += f"👥 Sent to:\n" + ("\n".join(sent) if sent else "None") + "\n\n"
-    report += f"🙅 Skipped:\n" + ("\n".join(skipped) if skipped else "None")
-
-    bot.send_message(chat_id=ADMIN_CHAT_ID, text=report, parse_mode="Markdown")
-    if LOG_CHANNEL_ID:
-        bot.send_message(chat_id=LOG_CHANNEL_ID, text=report, parse_mode="Markdown")
-
-# --- Telegram Handlers ---
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_chat.id != ADMIN_CHAT_ID:
-        return await update.message.reply_text("❌ You are not authorized.")
-    await update.message.reply_text("👋 Send the Excel file to start sending SMS reminders.")
-
-async def handle_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_chat.id != ADMIN_CHAT_ID:
+async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ALLOWED_USER_ID:
+        await update.message.reply_text("⛔ Unauthorized user.")
         return
 
-    document = update.message.document
-    if not document.file_name.endswith(".xlsx"):
-        return await update.message.reply_text("❌ Please upload a .xlsx Excel file.")
-
-    file = await context.bot.get_file(document.file_id)
-    file_path = f"downloads/{document.file_name}"
-    os.makedirs("downloads", exist_ok=True)
+    file = await update.message.document.get_file()
+    file_path = "temp.xlsx"
     await file.download_to_drive(file_path)
-    await update.message.reply_text("📄 File received. Processing...")
 
-    threading.Thread(target=process_excel, args=(file_path, context.bot)).start()
+    df = pd.read_excel(file_path, header=2)
+    df = df[df["COLLECTION USER"].str.strip() == "KONA GOPALA KRISHNA"]
 
-# --- Main Bot ---
-if __name__ == "__main__":
-    app = ApplicationBuilder().token(TOKEN).build()
+    sent_users = []
+    skipped_users = []
+
+    for _, row in df.iterrows():
+        try:
+            name = row["CUSTOMER NAME"]
+            loan_no = str(row["LOAN A/C NO"])
+            mobile = str(row["MOBILE NO"]).replace(".0", "")
+            edi = float(row["EDI AMOUNT"])
+            overdue = float(row["OVER DUE"])
+            advance = float(row["ADVANCE"])
+            payable = (edi + overdue) - advance
+
+            if payable <= 0:
+                skipped_users.append(name)
+                continue
+
+            msg = (
+                f"👋 ప్రియమైన {name} గారు,\n\n"
+                f"మీ Veritas Finance లో ఉన్న {loan_no} లోన్ నంబరుకు పెండింగ్ అమౌంట్ వివరాలు:\n\n"
+                f"💸 అడ్వాన్స్ మొత్తం: ₹{advance}\n"
+                f"📌 ఈడీ మొత్తం: ₹{edi}\n"
+                f"🔴 ఓవర్‌డ్యూ మొత్తం: ₹{overdue}\n"
+                f"✅ చెల్లించవలసిన మొత్తం: ₹{payable}\n\n"
+                f"⚠️ దయచేసి వెంటనే చెల్లించండి, లేకపోతే పెనాల్టీలు మరియు CIBIL స్కోర్‌పై ప్రభావం పడుతుంది.\n"
+                f"🔗 చెల్లించడానికి లింక్: {VERITAS_LINK}"
+            )
+
+            payload = {
+                "authorization": FAST2SMS_API_KEY,
+                "message": msg,
+                "language": "unicode",
+                "route": "q",
+                "numbers": mobile
+            }
+
+            res = requests.post("https://www.fast2sms.com/dev/bulkV2", data=payload)
+            if res.status_code == 200:
+                sent_users.append(name)
+            else:
+                skipped_users.append(name)
+        except Exception as e:
+            skipped_users.append(row.get("CUSTOMER NAME", "Unknown"))
+
+    sent_text = "\n".join(sent_users) if sent_users else "None"
+    skipped_text = "\n".join(skipped_users) if skipped_users else "None"
+
+    report = (
+        f"📤 *SMS Report*\n\n"
+        f"✅ Sent: {len(sent_users)}\n"
+        f"⛔ Skipped: {len(skipped_users)}\n\n"
+        f"👥 Sent to:\n{sent_text}\n\n"
+        f"🙅 Skipped:\n{skipped_text}"
+    )
+
+    await context.bot.send_message(chat_id=LOG_CHANNEL_ID, text=report, parse_mode="Markdown")
+    await update.message.reply_text("✅ Processing completed. Report sent to log channel.")
+
+
+if __name__ == '__main__':
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.Document.ALL, handle_excel))
-    print("✅ Bot is running...")
+    app.add_handler(CallbackQueryHandler(button_handler))
+    app.add_handler(MessageHandler(filters.Document.FileExtension("xlsx"), handle_file))
+
+    print("Bot running...")
     app.run_polling()
