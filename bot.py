@@ -29,6 +29,7 @@ SAVE_PATH = "loan_data.xlsx"
 
 stop_sending = False
 
+# 📲 Send SMS using Fast2SMS
 def send_sms(phone, message):
     payload = {
         'authorization': FAST2SMS_API_KEY,
@@ -46,8 +47,8 @@ def send_sms(phone, message):
         print(f"❌ Error sending SMS to {phone}: {e}")
         return False
 
-# 📊 Process Excel
-def process_excel(file_path, bot):
+# 📊 Process Excel and Send SMS
+def process_excel(file_path, application):
     global stop_sending
     stop_sending = False
 
@@ -76,7 +77,7 @@ def process_excel(file_path, bot):
             msg = (
                 f"\U0001F44B ప్రియమైన {name} గారు,\n\n"
                 f"మీ Veritas Finance లో ఉన్న {loan_no} లోన్ నంబరుకు పెండింగ్ అమౌంట్ వివరాలు:\n\n"
-                f"\U0001F4B8 అడ్వాన్స్ Amount: ₹{advance}\n"
+                f"\U0001F4B8 Advance Amount: ₹{advance}\n"
                 f"\U0001F4CC Edi Amount: ₹{edi}\n"
                 f"\U0001F534 Overdue Amount: ₹{overdue}\n"
                 f"\u2705 చెల్లించవలసిన మొత్తం: ₹{payable}\n\n"
@@ -95,7 +96,7 @@ def process_excel(file_path, bot):
         except Exception as e:
             print(f"❌ Error processing row {index}: {e}")
 
-    # 🔔 Send log to Telegram
+    # 🔔 Send log to Telegram safely from thread
     report = (
         f"🧾 SMS Reminder Report:\n"
         f"✅ Sent: {sent_count}\n"
@@ -104,10 +105,9 @@ def process_excel(file_path, bot):
         f"🙅‍♂️ Skipped:\n" + "\n".join(skipped_users[:30])
     )
 
-    # ✅ FIX: Use asyncio thread-safe method
     asyncio.run_coroutine_threadsafe(
-        bot.send_message(chat_id=LOG_CHANNEL_ID, text=report),
-        bot.application.loop
+        application.bot.send_message(chat_id=LOG_CHANNEL_ID, text=report),
+        application.loop
     )
 
 # 📩 Handle File Upload
@@ -122,7 +122,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         file = await context.bot.get_file(document.file_id)
         await file.download_to_drive(SAVE_PATH)
         await update.message.reply_text("📤 Sending SMS reminders...")
-        threading.Thread(target=process_excel, args=(SAVE_PATH, context.bot)).start()
+        threading.Thread(target=process_excel, args=(SAVE_PATH, context.application)).start()
     else:
         await update.message.reply_text("⚠️ Please send an Excel (.xlsx) file.")
 
