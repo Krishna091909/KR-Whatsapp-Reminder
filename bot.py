@@ -3,7 +3,6 @@ import pandas as pd
 import datetime
 import requests
 import time
-import asyncio
 from flask import Flask
 import threading
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -26,10 +25,9 @@ LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID"))
 
 # 📁 File Paths
 SAVE_PATH = "loan_data.xlsx"
-
 stop_sending = False
 
-# 📲 Send SMS using Fast2SMS
+
 def send_sms(phone, message):
     payload = {
         'authorization': FAST2SMS_API_KEY,
@@ -47,7 +45,8 @@ def send_sms(phone, message):
         print(f"❌ Error sending SMS to {phone}: {e}")
         return False
 
-# 📊 Process Excel and Send SMS
+
+# 📊 Process Excel
 def process_excel(file_path, application):
     global stop_sending
     stop_sending = False
@@ -77,7 +76,7 @@ def process_excel(file_path, application):
             msg = (
                 f"\U0001F44B ప్రియమైన {name} గారు,\n\n"
                 f"మీ Veritas Finance లో ఉన్న {loan_no} లోన్ నంబరుకు పెండింగ్ అమౌంట్ వివరాలు:\n\n"
-                f"\U0001F4B8 Advance Amount: ₹{advance}\n"
+                f"\U0001F4B8 అడ్వాన్స్ Amount: ₹{advance}\n"
                 f"\U0001F4CC Edi Amount: ₹{edi}\n"
                 f"\U0001F534 Overdue Amount: ₹{overdue}\n"
                 f"\u2705 చెల్లించవలసిన మొత్తం: ₹{payable}\n\n"
@@ -96,7 +95,7 @@ def process_excel(file_path, application):
         except Exception as e:
             print(f"❌ Error processing row {index}: {e}")
 
-    # 🔔 Send log to Telegram safely from thread
+    # 🔔 Send log to Telegram
     report = (
         f"🧾 SMS Reminder Report:\n"
         f"✅ Sent: {sent_count}\n"
@@ -105,10 +104,11 @@ def process_excel(file_path, application):
         f"🙅‍♂️ Skipped:\n" + "\n".join(skipped_users[:30])
     )
 
-    asyncio.run_coroutine_threadsafe(
-        application.bot.send_message(chat_id=LOG_CHANNEL_ID, text=report),
-        application.loop
-    )
+    async def send_log():
+        await application.bot.send_message(chat_id=LOG_CHANNEL_ID, text=report)
+
+    application.create_task(send_log())
+
 
 # 📩 Handle File Upload
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -126,6 +126,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("⚠️ Please send an Excel (.xlsx) file.")
 
+
 # 🤖 Bot Commands
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ALLOWED_USER_ID:
@@ -138,6 +139,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]]
     await update.message.reply_text("Welcome to SMS Reminder Bot!", reply_markup=InlineKeyboardMarkup(keyboard))
 
+
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -146,6 +148,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "about":
         await query.edit_message_text("🤖 Developed for Veritas SMS Reminders based on Excel data.")
 
+
 async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global stop_sending
     if update.effective_user.id != ALLOWED_USER_ID:
@@ -153,15 +156,19 @@ async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     stop_sending = True
     await update.message.reply_text("🛑 Sending stopped.")
 
+
 # 🌐 Flask Keep-Alive
 web_app = Flask('')
+
 
 @web_app.route('/')
 def home():
     return "Bot is Alive!"
 
+
 def run_flask():
     web_app.run(host='0.0.0.0', port=8080)
+
 
 def keep_alive():
     while True:
@@ -170,6 +177,7 @@ def keep_alive():
         except:
             pass
         time.sleep(49)
+
 
 # ▶️ Run Bot
 if __name__ == '__main__':
