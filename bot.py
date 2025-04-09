@@ -3,6 +3,7 @@ import pandas as pd
 import datetime
 import requests
 import time
+import asyncio
 from flask import Flask
 import threading
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -46,7 +47,6 @@ def send_sms(phone, message):
         return False
 
 # 📊 Process Excel
-
 def process_excel(file_path, bot):
     global stop_sending
     stop_sending = False
@@ -104,7 +104,11 @@ def process_excel(file_path, bot):
         f"🙅‍♂️ Skipped:\n" + "\n".join(skipped_users[:30])
     )
 
-    bot.send_message(chat_id=LOG_CHANNEL_ID, text=report)
+    # ✅ FIX: Use asyncio thread-safe method
+    asyncio.run_coroutine_threadsafe(
+        bot.send_message(chat_id=LOG_CHANNEL_ID, text=report),
+        bot.application.loop
+    )
 
 # 📩 Handle File Upload
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
